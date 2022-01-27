@@ -2,7 +2,7 @@ import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
-import flatCache from "flat-cache";
+import mcache from "memory-cache";
 import mongoose from "mongoose";
 import swaggerJsDoc from "swagger-jsdoc";
 import swaggerUI from "swagger-ui-express";
@@ -16,23 +16,22 @@ app.use(bodyParser.urlencoded({ limit: "30mb", extended: true }));
 app.use(cors());
 const PORT = process.env.PORT || 8001;
 
-const cache = flatCache.load("currencyCache");
-
-// create flat cache routes
-const flatCacheMiddleware = (req, res, next) => {
-  const key = "__express__" + req.originalUrl || req.url;
-  const cacheContent = cache.getKey(key);
-  if (cacheContent) {
-    res.send(cacheContent);
-  } else {
-    res.sendResponse = res.send;
-    res.send = (body) => {
-      cache.setKey(key, body);
-      cache.save();
-      res.sendResponse(body);
-    };
-    next();
-  }
+var cacheMiddleware = (duration) => {
+  return (req, res, next) => {
+    let key = "__express__" + req.originalUrl || req.url;
+    let cachedBody = mcache.get(key);
+    if (cachedBody) {
+      res.send(cachedBody);
+      return;
+    } else {
+      res.sendResponse = res.send;
+      res.send = (body) => {
+        mcache.put(key, body, duration * 1000);
+        res.sendResponse(body);
+      };
+      next();
+    }
+  };
 };
 
 const options = {
@@ -58,7 +57,7 @@ const options = {
 const specs = swaggerJsDoc(options);
 
 app.use("/api-docs", swaggerUI.serve, swaggerUI.setup(specs));
-app.use("/currencies", flatCacheMiddleware, currencyRouter);
+app.use("/currencies", cacheMiddleware(60), currencyRouter);
 app.use("/requests", requestsRouter);
 
 app.get("/", (req, res) => {
